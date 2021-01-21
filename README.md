@@ -10,7 +10,7 @@ For more details behind the methods, we highly recommend checking out the paper.
 There are two examples, both of which can be found in the `examples` folder. To see how the package is used, we recommend checking out the examples.
 
 ## Citing
-If you use rsw in your research, please consider citing us by using the following bibtex:
+If you use `covpred` in your research, please consider citing us by using the following bibtex:
 ```
 @misc{barratt2021covariance,
   title={Covariance prediction via convex optimization},
