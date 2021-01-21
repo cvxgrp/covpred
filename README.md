@@ -1,7 +1,7 @@
 # covpred
 
 Covariance prediction via convex optimization (`covpred`) in Python.
-This package implements the methods described in the paper [Optimal Representative Sample Weighting](https://stanford.edu/~boyd/papers/forecasting_covariances.html).
+This package implements the methods described in the paper [Covariance Prediction via Convex Optimization](https://stanford.edu/~boyd/papers/forecasting_covariances.html).
 At a high level, the package creates covariance matrix predictors.
 For more details behind the methods, we highly recommend checking out the paper.
 
