@@ -1,6 +1,9 @@
 import numpy as np
 from scipy.optimize import fmin_l_bfgs_b
 from scipy.linalg import expm
+import torch
+
+from covpred.utils import expm
 
 class Whitener(object):
     def __init__(self):
@@ -291,53 +294,67 @@ class MatrixExponentialRegressionWhitener(Whitener):
         self.lam = lam
         self.opt_kwargs = opt_kwargs
 
-    def whiten(self, Y, X):
-        N, n = Y.shape
-        N, p = X.shape
-        rows, cols = np.triu_indices(n)
-        pred = np.zeros((N, n, n))
-        rows, cols = np.triu_indices(n)
-        pred[:, rows, cols] = X @ self._A + self._b
-        pred = (pred + pred.swapaxes(1, 2)) / 2
-        Sigmas = [expm(-p) for p in pred]
-        Ls = [np.linalg.cholesky(expm(p)) for p in pred]
-        Ys = [Ls[i].T @ Y[i] for i in range(N)]
-        ts = np.arange(N)
-        return np.array(Sigmas), np.array(Ls), np.array(Ys), ts
-
-    def fit(self, Y, X):
+    def whiten(self, Y, X, cuda=False):
         N, n = Y.shape
         N, p = X.shape
         k = n*(n+1) // 2
+        rows, cols = np.triu_indices(n)
+        Ytch = torch.from_numpy(Y)
+        Xtch = torch.from_numpy(X)
+        if cuda:
+            Ytch = Ytch.cuda()
+            Xtch = Xtch.cuda()
+        
+        pred = torch.zeros((N, n, n)).double()
+        if cuda:
+            pred = pred.cuda()
+        pred[:, rows, cols] = Xtch @ self._A + self._b
+        pred = (pred + pred.transpose(1, 2)) / 2
+        Sigmas = expm(-pred)
+        Thetas = expm(pred)
+        Ls = torch.cholesky(Thetas)
+        Ys = torch.bmm(Ls.transpose(1, 2), Ytch[:,:,None]).squeeze(-1)
+        ts = np.arange(N)
+        return Sigmas.cpu().detach().numpy(), Ls.cpu().detach().numpy(), Ys.cpu().detach().numpy(), ts
 
-        def f(x):
-            A = x[:k*p].reshape(p, k)
-            b = x[k*p:]
+    def fit(self, Y, X, cuda=False, verbose=False):
+        N, n = Y.shape
+        N, p = X.shape
+        k = n*(n+1) // 2
+        rows, cols = np.triu_indices(n)
+        
+        Ytch = torch.from_numpy(Y)
+        Xtch = torch.from_numpy(X)
+        if cuda:
+            Ytch = Ytch.cuda()
+            Xtch = Xtch.cuda()
             
-            pred = np.zeros((N, n, n))
-            rows, cols = np.triu_indices(n)
-            pred[:, rows, cols] = X @ A + b
-            pred = (pred + pred.swapaxes(1, 2)) / 2
-            l = self.lam / 2 * np.sum(np.square(A))
-            grad_A = self.lam * A
-            grad_b = np.zeros(b.size)
-            for t in range(N):
-                l += (-np.trace(pred[t]) + Y[t] @ expm(pred[t]) @ Y[t]) / N
-                Lam, Q = np.linalg.eigh(pred[t])
-                tmp = (np.exp(Lam[None, :] - Lam[:, None]) - 1) / (Lam[None, :] - Lam[:, None])
-                tmp[np.isnan(tmp)] = 1.
-                modifier = np.exp(Lam[:, None]) * tmp 
-                W = Q.T @ np.outer(Y[t], Y[t]) @ Q
-                grad_predt = -np.eye(n) + Q @ (W * modifier) @ Q.T
-                grad_A += np.outer(X[t], grad_predt[rows, cols]) / N
-                grad_b += grad_predt[rows, cols] / N
-            grad = np.append(
-                grad_A.flatten(),
-                grad_b.flatten()
-            )
-            return l, grad
-
-        x = np.zeros(k*p + k)
-        x, fstar, info = fmin_l_bfgs_b(f, x, **self.opt_kwargs)
-        self._A = x[:k*p].reshape(p, k)
-        self._b = x[k*p:]
+        A = torch.zeros(p, k).double()
+        b = torch.zeros(k).double()
+        if cuda:
+            A = A.cuda()
+            b = b.cuda()
+        A.requires_grad_(True)
+        b.requires_grad_(True)
+        
+        opt = torch.optim.LBFGS([A, b], line_search_fn='strong_wolfe')
+        
+        def closure():
+            opt.zero_grad()
+            pred = torch.zeros((N, n, n)).double()
+            if cuda:
+                pred = pred.cuda()
+            pred[:, rows, cols] = Xtch @ A + b
+            pred = (pred + pred.transpose(1, 2)) / 2
+            Thetahat = expm(pred)
+            loss = -torch.diagonal(pred, dim1=-2, dim2=-1).sum() / N + \
+                torch.bmm(torch.bmm(Ytch[:,None,:], expm(pred)), Ytch[:,:,None]).sum() / N + \
+                self.lam / 2 * A.pow(2).sum()
+            loss.backward()
+            if verbose:
+                print(loss.item())
+            return loss
+    
+        opt.step(closure)
+        self._A = A.detach().cpu().numpy()
+        self._b = b.detach().cpu().numpy()
