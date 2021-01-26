@@ -8,6 +8,7 @@ setup(
     setup_requires=[
         "numpy",
         "scipy",
+        "torch"
     ],
     url="http://github.com/cvxgrp/covpred/",
     license="Apache License, Version 2.0",
