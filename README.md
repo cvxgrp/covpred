@@ -5,6 +5,13 @@ This package implements the methods described in the paper [Covariance Predictio
 At a high level, the package creates covariance matrix predictors.
 For more details behind the methods, we highly recommend checking out the paper.
 
+## Installation
+
+Run
+```
+pip install git+https://github.com/cvxgrp/covpred.git
+```
+
 ## Running the examples
 
 There are two examples, both of which can be found in the `examples` folder. To see how the package is used, we recommend checking out the examples.
